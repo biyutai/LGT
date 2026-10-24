@@ -3,14 +3,15 @@ module sd_card_top
 #(
 	parameter  SPI_LOW_SPEED_DIV = 248,         // SD card low speed mode frequency division parameter,spi clk speed = clk speed /((SPI_LOW_SPEED_DIV + 2) * 2 )
 	parameter  SPI_HIGH_SPEED_DIV = 0,          // SD card high speed mode frequency division parameter,spi clk speed = clk speed /((SPI_HIGH_SPEED_DIV + 2) * 2 )
-	// 看门狗：超时就把整个 SD 模块复位重新初始化（时钟周期数；SD 域 50MHz 下约 4s / 500ms，原按 100MHz 设定）
-	parameter  INIT_TIMEOUT = 200_000_000,      // 初始化 2s（ACMD41 规范上限 1s，另含 S_FLUSH 约 0.1s）
-	parameter  READ_TIMEOUT = 25_000_000,       // 读一个扇区 250ms（规范读延迟上限 100ms）
+	// 看门狗：超时就把整个 SD 模块复位重新初始化（时钟周期数；SD 域 50MHz 下约 2s / 500ms）
+	parameter  INIT_TIMEOUT = 100_000_000,      // 初始化 2s @ 50MHz（ACMD41 规范上限 1s，另含 S_FLUSH）
+	parameter  READ_TIMEOUT = 25_000_000,       // 读一个扇区 500ms @ 50MHz（规范读延迟上限 100ms）
 	parameter  [15:0] FLUSH_FF_BYTES = 16'd2600 // 见 sd_card_cmd
 )
 (
 	input            clk,
 	input            rst,
+	input            reinit_req,          // 无卡/无图时上层请求重新初始化（1 拍脉冲）
 	output           SD_nCS,                    //SD card chip select (SPI mode)
 	output           SD_DCLK,                   //SD card clock
 	output           SD_MOSI,                   //SD card controller data output
@@ -81,6 +82,12 @@ begin
 	end
 	else if((sd_init_done && !sd_sec_read) || sd_sec_read_end)
 		wd_cnt <= 28'd0;
+	else if(reinit_req && !wd_rst)
+	begin
+		wd_cnt  <= 28'd0;
+		wd_hold <= 4'd0;
+		wd_rst  <= 1'b1;                 // 主动重试：不置 wd_fired，避免无卡时把健康位打红
+	end
 	else if(wd_cnt == (sd_init_done ? READ_TIMEOUT - 1 : INIT_TIMEOUT - 1))
 	begin
 		wd_cnt   <= 28'd0;

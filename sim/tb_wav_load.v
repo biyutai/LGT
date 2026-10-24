@@ -122,6 +122,9 @@ sd_card_bmp #(
 );
 // 初始化阶段 SPI 加快到 5MHz 以缩短仿真（板上 200kHz）
 defparam dut.sd_card_top_m0.SPI_LOW_SPEED_DIV = 8;
+defparam dut.sd_card_top_m0.INIT_TIMEOUT = 2_000_000;   // 40ms @ 50MHz
+defparam dut.sd_card_top_m0.READ_TIMEOUT = 500_000;     // 10ms @ 50MHz
+defparam dut.MEDIA_RETRY_CYCLES = 10_000_000;            // 200ms: longer than SD init + scan
 
 sd_card_model #(.DISK_SECTORS(128)) card (
     .cs_n (sd_ncs), .sclk (sd_dclk), .mosi (sd_mosi), .miso (sd_miso)
@@ -880,6 +883,70 @@ initial begin
         $finish;
     end
     // ===================================================================
+    // ===================================================================
+    $display("== 0. power-on without card, then hot insert");
+    disk_clear;
+    put_bmp(10, 0); put_bmp(11, 1);
+    put_wav(12, 700, 48000);
+    card.remove;
+    rst <= 1'b1; repeat (20) @(posedge clk); rst <= 1'b0;
+    #60_000_000;                                  // > 40ms init watchdog
+    check(!dut.sd_mounted, "no card at power-on: sd_mounted=0");
+    check(!display_valid, "no card at power-on: no first image");
+    card.insert;
+    begin : hot_insert_wait
+        integer t;
+        t = 0;
+        while (!(dut.sd_mounted && display_valid) && t < 400_000) begin
+            #1000; t = t + 1;                     // up to 200ms
+        end
+        check(dut.sd_mounted, "hot insert: sd_mounted=1");
+        check(display_valid, "hot insert: first image appears");
+        check(dut.img_found_count > 0, "hot insert: images scanned");
+    end
+
+    // ===================================================================
+    $display("== 0c. FAT32 card, power-on without card, then hot insert");
+    disk_clear;
+    put_bmp(24, 1);
+    put_wav(28, 700, 48000);
+    copy_sector(24, 40);
+    copy_sector(28, 60); copy_sector(29, 65); copy_sector(30, 70);
+    copy_sector(31, 75); copy_sector(32, 100); copy_sector(33, 105);
+    fat_volume_header;
+    put32(512 + 40*4, 32'h0fffffff);
+    put32(512 + 60*4, 65); put32(512 + 65*4, 70);
+    put32(512 + 70*4, 75); put32(512 + 75*4, 100);
+    put32(512 + 100*4, 105); put32(512 + 105*4, 32'h0fffffff);
+    fat_dir_entry(0, "PIC1    BMP", 40, BMP_BYTES);
+    fat_dir_entry(32, "MUSIC   WAV", 60, 44+700*4);
+    put32(512 + 45*4, 32'h0fffffff);
+    fat_dir_entry(64, "PLAYLISTTXT", 45, 16);
+    card.disk[45*512+0]="1"; card.disk[45*512+1]=",";
+    card.disk[45*512+2]="8"; card.disk[45*512+3]=",";
+    card.disk[45*512+4]="0"; card.disk[45*512+5]=",";
+    card.disk[45*512+6]="A"; card.disk[45*512+7]=8'h0a;
+    card.remove;
+    rst <= 1'b1; repeat (20) @(posedge clk); rst <= 1'b0;
+    #60_000_000;
+    check(!dut.sd_mounted, "FAT32 no card: sd_mounted=0");
+    card.insert;
+    begin : fat32_hot_wait
+        integer t;
+        t = 0;
+        while (!(dut.sd_mounted && display_valid) && t < 600_000) begin
+            #1000; t = t + 1;
+        end
+        $display("        fat32 hot: sd_mounted=%b scan_done=%b scan_paused=%b img_found=%0d disp=%b cfg_ready=%b fat_ready=%b fat_active=%b",
+                 dut.sd_mounted, dut.scan_done, dut.scan_paused, dut.img_found_count, display_valid,
+                 dut.cfg_ready, dut.fat_index_ready, dut.fat_index_active);
+        check(dut.sd_mounted, "FAT32 hot insert: sd_mounted=1");
+        check(display_valid, "FAT32 hot insert: first image appears");
+        check(dut.img_found_count > 0, "FAT32 hot insert: images scanned");
+        check(dut.playlist_ready && dut.playlist_entries != 0,
+              "FAT32 hot insert: playlist parsed after re-init");
+    end
+
     $display("== 1. 4 BMP then WAV (700 words -> 512)");
     disk_clear;
     put_bmp(10, 0); put_bmp(11, 1); put_bmp(12, 2); put_bmp(13, 3);

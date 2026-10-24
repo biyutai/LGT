@@ -201,6 +201,16 @@ module playlist_parse #(
                 seconds[i]    <= DEFAULT_SECONDS;
                 transition[i] <= 2'd0;
             end
+        end else if (start) begin
+            // 重新解析（掉卡重挂 / 重新上电扫描）必须从空表开始：
+            // 原实现只在 rst 清计数和 present，start 在 S_DONE 被忽略、在 S_RUN 会接着半张表写，
+            // 导致热插卡后 list_done/present 仍是旧的，上层节目单指针永远不复位。
+            state       <= S_RUN;
+            entry_count <= 4'd0;
+            error_count <= 4'd0;
+            present     <= 1'b0;
+            done        <= 1'b0;
+            clear_line;
         end else if (state == S_IDLE) begin
             if (start) begin
                 state <= S_RUN;

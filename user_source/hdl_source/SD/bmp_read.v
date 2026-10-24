@@ -28,6 +28,7 @@ module bmp_read #(
     // 按指定扇区加载一张图到 SDRAM
     input                       load_start,
     input                       load_abort,     // 加载超时时由 sd_card_bmp 发出，强制回到空闲（移植自 lab_ex4）
+    input                       probe_req,      // 常驻模式下周期性读一个扇区，用于发现拔卡
     input  [31:0]               load_sector,
     input  [20:0]               wav_load_words,
     input                       load_wav,       // 1 = 这次加载 WAV（按 32 位字线性输出），0 = BMP
@@ -61,6 +62,7 @@ localparam ST_SCAN      = 3'd1;
 localparam ST_LOAD_HDR  = 3'd2;
 localparam ST_LOAD_WAIT = 3'd3;
 localparam ST_LOAD_DATA = 3'd4;
+localparam ST_PROBE     = 3'd5;         // 常驻后周期性读一个扇区探活：拔卡时读超时由看门狗处理
 
 reg [2:0]  state;
 reg [9:0]  rd_cnt;
@@ -530,6 +532,20 @@ always @(posedge clk or posedge rst) begin
                     scan_paused       <= 1'b0;
                     sd_sec_read_addr  <= scan_sector;
                     state             <= ST_SCAN;
+                end else if (probe_req) begin
+                    // 探活：读 logical 0（FAT 映射下是第一个文件的首扇区）。
+                    // 卡在则很快 sd_sec_read_end；卡拔走则一直等不到，SD 看门狗超时复位。
+                    sd_sec_read_addr <= 32'd0;
+                    sd_sec_read      <= 1'b1;
+                    state            <= ST_PROBE;
+                end
+            end
+
+            ST_PROBE: begin
+                sd_sec_read <= 1'b1;
+                if (sd_sec_read_end) begin
+                    sd_sec_read <= 1'b0;
+                    state       <= ST_IDLE;
                 end
             end
 

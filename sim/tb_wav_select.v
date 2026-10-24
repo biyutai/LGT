@@ -16,6 +16,7 @@ localparam [20:0]  WAV_MAX = 21'd1024;                 // 仿真里把音频区�
 localparam integer GAP     = 64;
 localparam integer W1_WORDS = 700;                     // 载入时按 256 对齐 → 512
 localparam integer W2_WORDS = 1024;                    // 已经是 256 的倍数 → 1024
+localparam integer W3_WORDS = 512;                     // 第三首（应急语音）→ 512
 
 reg clk = 1'b0;
 reg rst = 1'b1;
@@ -205,8 +206,16 @@ function [31:0] wav_word_b(input integer k);
     wav_word_b = {16'h2000 + k[15:0] * 16'd5, 16'd5000 - k[15:0] * 16'd2};
 endfunction
 
+function [31:0] wav_word_c(input integer k);
+    wav_word_c = {16'h3000 + k[15:0] * 16'd7, 16'd6000 + k[15:0] * 16'd3};
+endfunction
+
 function [31:0] wav_word(input [1:0] track, input integer k);
-    wav_word = (track == 2'd0) ? wav_word_a(k) : wav_word_b(k);
+    case (track)
+        2'd0: wav_word = wav_word_a(k);
+        2'd1: wav_word = wav_word_b(k);
+        default: wav_word = wav_word_c(k);
+    endcase
 endfunction
 
 task put_wav_track(input integer sec, input integer nwords, input [1:0] track);
@@ -344,6 +353,16 @@ task wait_wav_load(input integer n, output reg ok);
     end
 endtask
 
+// 等显示切到指定图片（0 基索引）
+task wait_img(input [1:0] idx, output reg ok);
+    integer t;
+    begin
+        t = 0;
+        while (dut.img_idx != idx && t < 300_000) begin #1000; t = t + 1; end
+        ok = (dut.img_idx == idx);
+    end
+endtask
+
 // 长按 KEY1：audio_next_toggle 翻转一次（顶层是翻转电平 + 3 级打拍 + 边沿检测）。
 // 只按一次，之后等待——请求必须被 DUT 记住并在写通道空下来时执行（这就是锁存那条修改要保证的）。
 task long_press_next;
@@ -356,11 +375,12 @@ endtask
 reg ok;
 
 initial begin
-    $display("== 4 BMP + 2 WAV files (700 words / 1024 words), KEY1 long press switches tracks");
+    $display("== 4 BMP + 3 WAV files, KEY1 long press switches tracks and linked images");
     disk_clear;
     put_bmp(30,0); put_bmp(31,1); put_bmp(32,2); put_bmp(33,3);
     put_wav_track(40, W1_WORDS, 2'd0);          // 6 个簇：40~45
     put_wav_track(50, W2_WORDS, 2'd1);          // 9 个簇：50~58
+    put_wav_track(60, W3_WORDS, 2'd2);          // 5 个簇：60~64
     fat_volume_header;
     // FAT 链
     put32(512+30*4,32'h0fffffff); put32(512+31*4,32'h0fffffff);
@@ -370,6 +390,8 @@ initial begin
     put32(512+50*4,51); put32(512+51*4,52); put32(512+52*4,53);
     put32(512+53*4,54); put32(512+54*4,55); put32(512+55*4,56);
     put32(512+56*4,57); put32(512+57*4,58); put32(512+58*4,32'h0fffffff);
+    put32(512+60*4,61); put32(512+61*4,62); put32(512+62*4,63);
+    put32(512+63*4,64); put32(512+64*4,32'h0fffffff);
     // 根目录（目录顺序 = 播放顺序）
     fat_dir_entry(0,   "PIC1    BMP", 30, BMP_BYTES);
     fat_dir_entry(32,  "PIC2    BMP", 31, BMP_BYTES);
@@ -377,13 +399,14 @@ initial begin
     fat_dir_entry(96,  "PIC4    BMP", 33, BMP_BYTES);
     fat_dir_entry(128, "MUSIC1  WAV", 40, 44 + W1_WORDS*4);
     fat_dir_entry(160, "MUSIC2  WAV", 50, 44 + W2_WORDS*4);
-    card.disk[2*512+192] = 8'h00;               // 目录项结束
+    fat_dir_entry(192, "MUSIC3  WAV", 60, 44 + W3_WORDS*4);
+    card.disk[2*512+224] = 8'h00;               // 目录项结束
 
     restart;
     wait_scan_and_first(ok);
     check(ok, "scan done and first image committed");
     check(dut.fat_index_active, "FAT32 directory table is used");
-    check(dut.audio_count_fat == 2, "both WAV files are registered (audio_count_fat = 2)");
+    check(dut.audio_count_fat == 3, "three WAV files are registered (audio_count_fat = 3)");
     $display("     debug: img_sector0=%0d wav_found=%0b wav_sector=%0d wav_words=%0d loads=%0d",
              dut.img_sector0, dut.wav_found, dut.wav_sector, wav_words, wav_loads);
 
@@ -392,11 +415,12 @@ initial begin
                       dut.load_busy, wav_loads, collecting, got, want, dut.wav_tried);
     check(ok && wav_loads >= 1, "boot loads the first WAV track");
     check(dut.audio_track == 2'd0, "boot plays the first WAV of the directory");
+    check(dut.img_idx == 2'd0, "boot shows image 1");
     check(wav_words == 21'd512 && done_words == 512, "track 1 loads 512 words (700 rounded to 256)");
     check(wav_bad(2'd0, 512) == 0, "track 1 samples are correct");
 
-    // ---- 长按 KEY1：切到第二首 ----
-    $display("== KEY1 long press -> second track");
+    // ---- 长按 KEY1：切到第二首 -> 图 4 ----
+    $display("== KEY1 long press -> second track, image 3");
     saw_ready_drop = 1'b0;
     long_press_next;
     wait_wav_load(2, ok);
@@ -407,22 +431,51 @@ initial begin
     check(dut.audio_track == 2'd1, "track index moves to the second WAV");
     check(done_words == 1024, "track 2 is written with its own length (1024 words)");
     check(wav_bad(2'd1, 1024) == 0, "track 2 samples are correct");
-    check(!disp_moved, "the displayed image is untouched by the music switch");
+    check(!disp_moved, "the displayed image is untouched during the WAV write");
+    wait_img(2'd2, ok);
+    check(ok, "second WAV selects image 3");
+    check(!dut.emergency_mode, "second WAV is not emergency mode");
+    disp_moved = 1'b0;
 
-    // ---- 再长按：绕回第一首 ----
-    $display("== KEY1 long press again -> wrap back to the first track");
+    // ---- 再长按：切到第三首 -> 图 2，进入紧急模式 ----
+    $display("== KEY1 long press again -> third track, image 2, emergency hold");
     long_press_next;
     wait_wav_load(3, ok);
-    check(ok, "another single long press starts the third audio load (wrap around)");
+    check(ok, "another single long press starts the third audio load");
     wait_wav_ready(ok);
     check(ok, "the third audio load completes");
+    check(dut.audio_track == 2'd2, "track index moves to the third WAV");
+    check(done_words == 512 && wav_bad(2'd2, 512) == 0,
+          "third track loads 512 words with correct samples");
+    wait_img(2'd1, ok);
+    check(ok, "third WAV selects image 2");
+    check(dut.emergency_mode, "third WAV enters emergency mode");
+    demo_force_auto = 1'b1;
+    #100;
+    check(!auto_enabled, "emergency mode holds automatic rotation");
+    demo_force_auto = 1'b0;
+
+    // ---- 再长按：绕回第一首 -> 图 1，退出紧急模式 ----
+    $display("== KEY1 long press again -> wrap back to the first track, image 1");
+    long_press_next;
+    wait_wav_load(4, ok);
+    check(ok, "another single long press starts the fourth audio load (wrap around)");
+    wait_wav_ready(ok);
+    check(ok, "the fourth audio load completes");
     check(dut.audio_track == 2'd0, "track index wraps back to the first WAV");
     check(done_words == 512 && wav_bad(2'd0, 512) == 0,
           "first track reloads 512 words with correct samples");
-    check(wav_loads == 3, "exactly three audio loads, no extra reload");
+    wait_img(2'd0, ok);
+    check(ok, "first WAV selects image 1");
+    check(!dut.emergency_mode, "leaving the third WAV exits emergency mode");
+    demo_force_auto = 1'b1;
+    #100;
+    check(auto_enabled, "automatic rotation is available after emergency");
+    demo_force_auto = 1'b0;
+    check(wav_loads == 4, "exactly four audio loads, no extra reload");
 
-    if (errors == 0) $display("ALL PASSED: two WAV tracks switch with KEY1 long press");
-    else $fatal(1, "WAV track switch failures: %0d", errors);
+    if (errors == 0) $display("ALL PASSED: KEY1 switches WAV tracks and linked images");
+    else $fatal(1, "WAV track/image switch failures: %0d", errors);
     $finish;
 end
 endmodule

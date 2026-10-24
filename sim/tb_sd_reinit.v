@@ -29,6 +29,7 @@ sd_card_top #(
 ) dut (
     .clk                    (clk),
     .rst                    (rst),
+    .reinit_req             (1'b0),
     .SD_nCS                 (sd_ncs),
     .SD_DCLK                (sd_dclk),
     .SD_MOSI                (sd_mosi),

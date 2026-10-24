@@ -1,6 +1,7 @@
 
 module sd_card_bmp #(
     parameter integer CLK_FREQ_HZ       = 100_000_000,
+    parameter integer MEDIA_RETRY_CYCLES = 50_000_000, // 无卡/无图时约 1s 重试一次（50MHz）
     parameter [31:0]  SCAN_START_SECTOR = 32'd0,
     parameter [31:0]  SCAN_MAX_SECTOR   = 32'd131071,
     parameter integer FRAME_WIDTH = 640,
@@ -185,9 +186,16 @@ reg              scan_resume_pulse;
 reg              load_start_pulse;
 reg [31:0]       load_sector;
 reg              scan_kicked;
+reg [26:0]       no_media_cnt;         // 无卡/无图重试计时
+reg              card_reinit;          // 1 拍：请求 SD 顶层重新初始化
+localparam integer PROBE_PERIOD_CYCLES = CLK_FREQ_HZ * 2; // 常驻探活周期：约 2s
+reg [27:0]       probe_cnt;
+reg              probe_req;            // 1 拍：请 bmp_read 读一个扇区探活
 reg              first_image_committed;
 reg              auto_play_en;
-wire             auto_play_effective = (USE_AUTO_SWITCH ? auto_play_switch : auto_play_en) || demo_force_auto;
+reg              emergency_mode;        // 第 3 首 WAV（应急语音）：锁住自动/节拍切图，画面停在图 2
+wire             auto_play_effective = ((USE_AUTO_SWITCH ? auto_play_switch : auto_play_en) ||
+                                        demo_force_auto) && !emergency_mode;
 localparam integer AUTO_COUNT_BITS = (CLK_FREQ_HZ < 2) ? 1 : $clog2(CLK_FREQ_HZ);
 reg [AUTO_COUNT_BITS-1:0] auto_cnt;
 reg [26:0] diag_second_counter;
@@ -572,6 +580,19 @@ function [1:0] next_buf_lut;
     end
 endfunction
 
+// KEY1 切歌时联动显示的图片（0 基索引）：第 1 首→图 1，第 2 首→图 3，第 3 首→图 2。
+// 第 3 首同时置 emergency_mode，锁住自动/节拍切图。
+function [1:0] audio_pick_image;
+    input [1:0] track;
+    begin
+        case (track)
+            2'd0:    audio_pick_image = 2'd0;
+            2'd1:    audio_pick_image = 2'd2;
+            default: audio_pick_image = 2'd1;
+        endcase
+    end
+endfunction
+
 function integer lowest_one;
     input [31:0] v;
     integer i;
@@ -606,6 +627,45 @@ end
 
 assign auto_tick = second_tick && period_boundary_q;
 
+// 无卡 / 卡在但扫不到图：约 1s 主动请求 SD 顶层重新初始化一次。
+// 覆盖两种情况：上电无卡后插入，以及 SD 初始化“假成功”但 LBA0 不是 FAT32 的状态。
+always @(posedge clk or posedge rst) begin
+    if (rst) begin
+        no_media_cnt <= 27'd0;
+        card_reinit  <= 1'b0;
+    end else begin
+        card_reinit <= 1'b0;
+        if (display_valid || (img_found_count != 3'd0) ||
+            (sd_init_done && !scan_done && !scan_paused))
+            no_media_cnt <= 27'd0;
+        else if (no_media_cnt == (MEDIA_RETRY_CYCLES - 1)) begin
+            no_media_cnt <= 27'd0;
+            card_reinit  <= 1'b1;
+        end else
+            no_media_cnt <= no_media_cnt + 27'd1;
+    end
+end
+
+// 常驻模式探活：四帧缓存完成后 SD 总线空闲，靠周期性读一个扇区发现拔卡。
+// 卡在：读很快结束；卡拔走：sd_sec_read 一直为高，sd_card_top 的读超时看门狗复位，
+// sd_init_done 掉 0 → display_valid 清 0 → 回到品牌封面。插回后走已有的热插卡恢复流程。
+wire probe_enable = sd_init_done && display_valid && scan_done && resident_mode && !load_busy;
+always @(posedge clk or posedge rst) begin
+    if (rst) begin
+        probe_cnt <= 28'd0;
+        probe_req <= 1'b0;
+    end else begin
+        probe_req <= 1'b0;
+        if (!probe_enable)
+            probe_cnt <= 28'd0;
+        else if (probe_cnt == PROBE_PERIOD_CYCLES - 1) begin
+            probe_cnt <= 28'd0;
+            probe_req <= 1'b1;
+        end else
+            probe_cnt <= probe_cnt + 28'd1;
+    end
+end
+
 always @(posedge clk or posedge rst) begin
     if (rst) begin
         wrfin_tgl_sync        <= 3'b000;
@@ -616,6 +676,7 @@ always @(posedge clk or posedge rst) begin
         scan_kicked           <= 1'b0;
         first_image_committed <= 1'b0;
         auto_play_en          <= 1'b0;             // 异步复位值必须是常数；上电扫描开始那一拍会同步设成 auto_play_init
+        emergency_mode        <= 1'b0;
         auto_cnt              <= 32'd0;
         diag_second_counter   <= 32'd0;
         diag_cache_hits       <= 8'd0;
@@ -698,6 +759,7 @@ always @(posedge clk or posedge rst) begin
             scan_resume_pulse     <= 1'b0;
             first_image_committed <= 1'b0;
             auto_play_en          <= auto_play_init;
+            emergency_mode        <= 1'b0;
             auto_cnt              <= 32'd0;
             diag_second_counter   <= 32'd0;
             diag_cache_hits       <= 8'd0;
@@ -1096,6 +1158,12 @@ always @(posedge clk or posedge rst) begin
                 else if (audio_request_taken) begin
                     audio_pending_index <= audio_request_idx;
                     audio_size_pending <= 1'b1;
+                    // KEY1 切歌联动显示：第 1 首→图 1，第 2 首→图 4，第 3 首→图 2；
+                    // 第 3 首（应急语音）同时进入紧急模式，锁住自动/节拍切图。
+                    // 图片请求走现有 remote_target 通路；WAV 载入期间会等写通道空下来再切图。
+                    remote_target <= audio_pick_image(audio_request_idx);
+                    remote_target_pending <= 1'b1;
+                    emergency_mode <= (audio_request_idx == 2'd2);
                 end
                 // 首图显示出来之后，把 WAV 整段载入 SDRAM 音频区（buffer 2），只做一次
                 // 期间按键请求照样记下，载完再切图
@@ -1291,6 +1359,21 @@ always @(posedge clk or posedge rst) begin
         cfg_byte_data   <= 8'd0;
         cfg_text_mode   <= 1'b0;
         cfg_timeout_cnt <= 28'd0;
+    end else if (!sd_init_done) begin
+        // 拔卡/重新初始化：节目单解析必须重新来一遍，否则热插卡后仍用空节目单。
+        cfg_state       <= CFG_IDLE;
+        cfg_read_q      <= 1'b0;
+        cfg_started     <= 1'b0;
+        cfg_ready       <= 1'b0;
+        cfg_left        <= 32'd0;
+        cfg_addr_q      <= 32'd0;
+        cfg_gap_cnt     <= 2'd0;
+        cfg_byte_valid  <= 1'b0;
+        cfg_start_pulse <= 1'b0;
+        cfg_eof_pulse   <= 1'b0;
+        cfg_byte_data   <= 8'd0;
+        cfg_text_mode   <= 1'b0;
+        cfg_timeout_cnt <= 28'd0;
     end else begin
         cfg_byte_valid  <= 1'b0;
         cfg_start_pulse <= 1'b0;
@@ -1405,7 +1488,10 @@ always @(posedge clk or posedge rst) begin
         img_idx_prev   <= 2'd0;
     end else begin
         img_idx_prev <= img_idx;
-        if (!list_active) begin
+        // 掉卡（!sd_init_done）也要复位节目单指针：playlist_parse 的 present 在
+        // 重新解析前可能还是 1，只靠 !list_active 会漏掉热插卡这一路，nxt_img_q
+        // 会带着上一轮的图号，把首图加载条件（can_load_next）永久锁死。
+        if (!sd_init_done || !list_active) begin
             list_pos       <= 4'd0;
             list_nxt       <= 4'd0;
             list_probe     <= 4'd1;
@@ -1498,6 +1584,7 @@ bmp_read #(
 
     .load_start             (load_start_pulse),
     .load_abort             (load_abort),
+    .probe_req              (probe_req),
     .load_sector            (load_sector),
     .load_wav               (write_is_wav),
     .wav_load_words         (selected_audio_words),
@@ -1559,6 +1646,7 @@ thumbnail_downsample #(.WIDTH(FRAME_WIDTH), .HEIGHT(FRAME_HEIGHT)) u_thumbnail_d
 sd_card_top #(.SPI_HIGH_SPEED_DIV(SD_SPI_HIGH_SPEED_DIV)) sd_card_top_m0(
     .clk                    (clk),
     .rst                    (rst),
+    .reinit_req             (card_reinit),
     .SD_nCS                 (SD_nCS),
     .SD_DCLK                (SD_DCLK),
     .SD_MOSI                (SD_MOSI),

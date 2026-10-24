@@ -4,10 +4,12 @@
 # Usage: powershell -File scripts/td_build.ps1 [-Out <dir>] [-Seed <n>] [-Area 0|1]
 #   -Area 1 (default) = area-priority mapping (gate map_mode area_prior)
 #   -Area 0           = timing-priority mapping (TD UI default)
+#   -Seed 23 (default) = verified placement seed: SD +2.582ns / MEM +0.140ns / video +8.150ns, 0 violations.
+#                        Pass -Seed -1 to skip the override (then the .al MultiSeed setting is used).
 # NOTE: keep this file ASCII-only (PowerShell 5.1 reads BOM-less .ps1 as ANSI).
 param(
     [string]$Out = (Join-Path $env:TEMP 'td_build'),
-    [int]$Seed = -1,
+    [int]$Seed = 23,
     [int]$Area = 1,
     [switch]$SynOnly,           # stop after synthesis (fast area iteration)
     # ReuseSyn: keep the existing syn_1 result, only re-run phy (seed search).
@@ -86,7 +88,7 @@ foreach ($step in $steps) {
     [System.IO.File]::WriteAllText($bat,
         "@echo off`r`n`"$TD`" `"$FLOW`" < NUL > run.log 2>&1`r`n", $utf8NoBom)
     $proc = Start-Process -FilePath 'cmd.exe' -WindowStyle Hidden -PassThru `
-        -WorkingDirectory $dir -ArgumentList '/c', 'run_step.cmd'
+        -WorkingDirectory $dir -ArgumentList '/c', '.\run_step.cmd'
     if (-not $proc.WaitForExit(1500000)) { $proc.Kill(); Write-Error "== $step timeout" }
     $mark = if ($step -eq 'syn_1') { 'opt_gate' } else { 'bitgen' }
     $logPath = Join-Path $dir 'run.log'

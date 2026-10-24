@@ -1026,10 +1026,24 @@ always @(posedge video_clk or posedge rst_video) begin
     else if (uptime_tick && boot_sec_q != 2'd3)
         boot_sec_q <= boot_sec_q + 2'd1;
 end
+// 只有上电第一秒内就已挂载的卡才走开机自检页；卡拔出后清掉，
+// 之后重新插入一律按热插卡处理，不再弹开机页。
+reg boot_card_present;
+always @(posedge video_clk or posedge rst_video) begin
+    if (rst_video)
+        boot_card_present <= 1'b0;
+    else if (boot_sec_q == 2'd0 && sd_mounted_video)
+        boot_card_present <= 1'b1;
+    else if (!sd_mounted_video && boot_sec_q != 2'd0)
+        boot_card_present <= 1'b0;
+end
 // 上电自启动越快越好：自检页只占"首图还没出来"的那段时间——第 0 秒留给品牌封面，
 // 之后显示自检页，首图一旦就绪（display_valid）立刻让位，绝不压住首图。
+// 只有上电时已在的卡才允许显示自检/引导页；热插卡直接保持品牌封面到首图，
+// 避免 SD 挂载后、图片扫描完成前闪过“NO CONTENT”。
 wire selfcheck_page = !display_valid_video && sd_mounted_video &&
-                      (boot_sec_q >= 2'd1) && !info_page_video;
+                      (boot_sec_q >= 2'd1) && !info_page_video &&
+                      boot_card_present;
 
 // 自检页 / LOG 页 / 无内容引导页：KEY2 上一页、KEY4 下一页。
 // 只在首图出来之前的页面窗口生效，不抢正常播放时 KEY2/KEY4 的切图/调档功能。
