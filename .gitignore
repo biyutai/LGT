@@ -74,3 +74,20 @@ td_project/out/
 *.qdb
 *.qpg
 *.qtl
+
+# Keep the repository limited to code and project configuration.
+/doc/
+/docs/
+/assets/
+/SOURCE-MANIFEST.json
+*.md
+*.pdf
+*.doc
+*.docx
+*.ppt
+*.pptx
+*.bmp
+*.wav
+*.png
+*.jpg
+*.jpeg
