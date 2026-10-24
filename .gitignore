@@ -1,0 +1,76 @@
+# ===== 安路 TD 工程产物（不要提交中间文件）=====
+# 注意：*.al 是 TD 工程文件、*.ipc 是 IP 配置、*.adc/*.sdc 是约束、*.cwc 是 ChipWatcher 配置 —— 这些都要提交
+*_Runs/
+*_syn/
+*_par/
+*_prj/
+log/
+.lock.f
+.recent_user_depot.ini
+*_bak.cwc
+*.bit
+*.fs
+*.bin
+*.jed
+*.svf
+*.ts
+*.prj
+*.spec
+*.wdb
+*.log
+*.logw
+*.rpt
+*.html
+*.dsn
+*.tmp
+
+# ===== 大文件：放网盘或 GitHub Release，不进 git =====
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+# ===== ModelSim 仿真产物 =====
+work/
+sim/work_*/
+sim/*.out
+*.vvp
+*.vcd
+*.vstf
+*.wlf
+transcript
+vsim.wlf
+modelsim.ini
+*.do.bak
+
+# ===== 临时刷写/调试目录（scripts/flash.sh 之外的临时产物）=====
+_flash_work/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ===== 编辑器/系统 =====
+.claude/settings.local.json
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ===== Office 临时文件 =====
+~$*
+
+# Source export: local outputs and assistant state
+build/
+_tf_backup/
+.claude/
+.codex/
+.agents/
+.spec-workflow/
+td_project/out/
+*.qdb
+*.qpg
+*.qtl

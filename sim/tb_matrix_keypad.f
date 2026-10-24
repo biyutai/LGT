@@ -1,0 +1,1 @@
+user_source/hdl_source/video/thumbnail_button_control.v

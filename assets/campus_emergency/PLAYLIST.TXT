@@ -1,0 +1,9 @@
+# LGT-S1 校园/园区多媒体信息终端 · 主题演示节目单（V3）
+# 每行：序号, 秒数, 转场, 中文|ENGLISH
+# 图 1 = 640x480 日常发布；图 3 = 1280x960 互动展陈
+# 图 2（应急预警）和图 4（疏散路线）不写进本节目单，只用于 S14/S16 直选
+# 英文一律大写；'|' 后不要加空格；字幕中不要使用逗号
+1, 8, 淡入, 日常发布 校园公告 系统正常|DAILY INFORMATION - CAMPUS NOTICE
+3, 8, 左揭示, 互动展陈 欢迎参观|INTERACTIVE EXHIBITION - WELCOME
+1, 8, 菱形溶解, 应急发布 信息通知|EMERGENCY NOTICE - STANDBY
+3, 8, 右揭示, 运维巡检 播放记录|MAINTENANCE - PLAYBACK LOG

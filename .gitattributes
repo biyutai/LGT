@@ -1,0 +1,5 @@
+# 所有文件按原样字节存储，不做换行转换：加密 IP（*.enc.v）只要有一个字节变化 TD 就无法解密
+* -text
+
+# shell 脚本必须保持 LF 换行，否则 Git Bash 运行时报 $'\r': command not found
+*.sh text eol=lf
