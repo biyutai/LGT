@@ -91,3 +91,14 @@ td_project/out/
 *.png
 *.jpg
 *.jpeg
+
+# ===== 交付物：TF 卡内容、最终比特流、报告 =====
+!README.md
+!firmware/
+!firmware/*.bit
+!TF_CARD/
+!TF_CARD/*.bmp
+!TF_CARD/*.wav
+!TF_CARD/*.TXT
+!docs/
+!docs/*.pdf

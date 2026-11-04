@@ -1,0 +1,37 @@
+LGT-S1 CONTENT MANIFEST
+product=LGT 音画同频数字标牌
+model=LGT-S1
+firmware_compat=1.0.0
+generated=2026-10-22T15:48:54+08:00
+
+files:
+  BMP      01_campus_daily_640x480.bmp
+           sha256=b9f8b06900ba16cb60f728626a5e0e22fef1cebd026ad97677391cdd9d2844d4
+           detail=640x480, 921654 bytes
+  BMP      02_emergency_warning_640x480.bmp
+           sha256=c52509fa0ab2f16f554e09b305384d096d98d459e1b220d817c144b45990eb7e
+           detail=640x480, 921654 bytes
+  BMP      03_exhibition_1280x960.bmp
+           sha256=7aac92a7cbbce5a5be37ecc6524dfd02777416c98216bf97f39e35239a57dc90
+           detail=1280x960, 3686454 bytes
+  BMP      04_evacuation_1024x768.bmp
+           sha256=be281dc707b9bae1c510473de82237af20960e31c6f20a0f1eebea3af0e65e38
+           detail=1024x768, 2359350 bytes
+  WAV      01_campus_daily.wav
+           sha256=d3d7b585feecfe35c7e1403e716f287771c3b2d707ec66351de54b2371afc76f
+           detail=576000 samples = 12.00s
+  WAV      02_exhibition_bgm.wav
+           sha256=e4a95b3f2ab66770021256ff7d8f0a89f6e3ce71cc3399ff49dd0764c67a0f93
+           detail=576000 samples = 12.00s
+  WAV      03_emergency_alert.wav
+           sha256=f52f7c4a10f11aca7c8c61fdff710808474fc2a3c5e56bec75caca49a47ba1fd
+           detail=291158 samples = 6.07s
+  PLAYLIST PLAYLIST.TXT
+           sha256=48e762e7b3b43a8abf4f9f561e025e04921ec1998638f6382c81b54bfc265fbc
+           detail=0 warning(s)
+
+notes:
+  - Copy the files to the FAT32 card root in the listed order.
+  - BMP scan order follows the card directory order; the first 640x480 image starts fastest.
+  - The firmware ignores MANIFEST.TXT.
+  - Proof-of-play times are uptime-relative, not wall-clock.
